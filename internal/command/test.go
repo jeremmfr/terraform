@@ -452,47 +452,59 @@ func (c *TestCommand) runTestSuite(ctx context.Context, suiteDirs testCommandSui
 
 func (c *TestCommand) testSuiteProviders(suiteDirs testCommandSuiteDirs, testProvider *moduletest.Provider) (map[addrs.Provider]providers.Factory, tfdiags.Diagnostics) {
 	var diags tfdiags.Diagnostics
-	ret := make(map[addrs.Provider]providers.Factory)
+	//ret := make(map[addrs.Provider]providers.Factory)
 
-	// We can safely use the internal providers returned by Meta here because
-	// the built-in provider versions can never vary based on the configuration
-	// and thus we don't need to worry about potential version differences
-	// between main module and test suite modules.
-	for name, factory := range c.internalProviders() {
-		ret[addrs.NewBuiltInProvider(name)] = factory
-	}
+	// TEMP: We just have this disabled for now but we do intend to undo this
+	// soon, once our new plugin-loading strategy is compatible with what's
+	// going on in here.
+	diags = diags.Append(tfdiags.Sourceless(
+		tfdiags.Error,
+		"Testing experiment is currently disabled",
+		"The initial phase of the testing experiment has concluded. A different iteration of it may follow in a later Terraform CLI release.",
+	))
+	return nil, diags
 
-	// For the remaining non-builtin providers, we'll just take whatever we
-	// recorded earlier in the in-memory-only "lock file". All of these should
-	// typically still be available because we would've only just installed
-	// them, but this could fail if e.g. the filesystem has been somehow
-	// damaged in the meantime.
-	for provider, lock := range suiteDirs.ProviderLocks.AllProviders() {
-		version := lock.Version()
-		cached := suiteDirs.ProviderCache.ProviderVersion(provider, version)
-		if cached == nil {
-			diags = diags.Append(tfdiags.Sourceless(
-				tfdiags.Error,
-				"Required provider not found",
-				fmt.Sprintf("Although installation previously succeeded for %s v%s, it no longer seems to be present in the cache directory.", provider.ForDisplay(), version.String()),
-			))
-			continue // potentially collect up multiple errors
+	/*
+		// We can safely use the internal providers returned by Meta here because
+		// the built-in provider versions can never vary based on the configuration
+		// and thus we don't need to worry about potential version differences
+		// between main module and test suite modules.
+		for name, factory := range c.internalProviders() {
+			ret[addrs.NewBuiltInProvider(name)] = factory
 		}
 
-		// NOTE: We don't consider the checksums for test suite dependencies,
-		// because we're creating a fresh "lock file" each time we run anyway
-		// and so they wouldn't actually guarantee anything useful.
+		// For the remaining non-builtin providers, we'll just take whatever we
+		// recorded earlier in the in-memory-only "lock file". All of these should
+		// typically still be available because we would've only just installed
+		// them, but this could fail if e.g. the filesystem has been somehow
+		// damaged in the meantime.
+		for provider, lock := range suiteDirs.ProviderLocks.AllProviders() {
+			version := lock.Version()
+			cached := suiteDirs.ProviderCache.ProviderVersion(provider, version)
+			if cached == nil {
+				diags = diags.Append(tfdiags.Sourceless(
+					tfdiags.Error,
+					"Required provider not found",
+					fmt.Sprintf("Although installation previously succeeded for %s v%s, it no longer seems to be present in the cache directory.", provider.ForDisplay(), version.String()),
+				))
+				continue // potentially collect up multiple errors
+			}
 
-		ret[provider] = providerFactory(cached)
-	}
+			// NOTE: We don't consider the checksums for test suite dependencies,
+			// because we're creating a fresh "lock file" each time we run anyway
+			// and so they wouldn't actually guarantee anything useful.
 
-	// We'll replace the test provider instance with the one our caller
-	// provided, so it'll be able to interrogate the test results directly.
-	ret[addrs.NewBuiltInProvider("test")] = func() (providers.Interface, error) {
-		return testProvider, nil
-	}
+			ret[provider] = providerFactory(cached)
+		}
 
-	return ret, diags
+		// We'll replace the test provider instance with the one our caller
+		// provided, so it'll be able to interrogate the test results directly.
+		ret[addrs.NewBuiltInProvider("test")] = func() (providers.Interface, error) {
+			return testProvider, nil
+		}
+
+		return ret, diags
+	*/
 }
 
 type testSuiteRunContext struct {
@@ -505,40 +517,53 @@ type testSuiteRunContext struct {
 }
 
 func (c *TestCommand) testSuiteContext(suiteDirs testCommandSuiteDirs, providerFactories map[addrs.Provider]providers.Factory, state *states.State, plan *plans.Plan, destroy bool) (*testSuiteRunContext, tfdiags.Diagnostics) {
-	var changes *plans.Changes
-	if plan != nil {
-		changes = plan.Changes
-	}
+	var diags tfdiags.Diagnostics
+	// TEMP: We just have this disabled for now but we do intend to undo this
+	// soon, once our new plugin-loading strategy is compatible with what's
+	// going on in here.
+	diags = diags.Append(tfdiags.Sourceless(
+		tfdiags.Error,
+		"Testing experiment is currently disabled",
+		"The initial phase of the testing experiment has concluded. A different iteration of it may follow in a later Terraform CLI release.",
+	))
+	return nil, diags
 
-	planMode := plans.NormalMode
-	if destroy {
-		planMode = plans.DestroyMode
-	}
+	/*
+		var changes *plans.Changes
+		if plan != nil {
+			changes = plan.Changes
+		}
 
-	tfCtx, diags := terraform.NewContext(&terraform.ContextOpts{
-		Providers: providerFactories,
+		planMode := plans.NormalMode
+		if destroy {
+			planMode = plans.DestroyMode
+		}
 
-		// We just use the provisioners from the main Meta here, because
-		// unlike providers provisioner plugins are not automatically
-		// installable anyway, and so we'll need to hunt for them in the same
-		// legacy way that normal Terraform operations do.
-		Provisioners: c.provisionerFactories(),
+		tfCtx, diags := terraform.NewContext(&terraform.ContextOpts{
+			Providers: providerFactories,
 
-		Meta: &terraform.ContextMeta{
-			Env: "test_" + suiteDirs.SuiteName,
-		},
-	})
-	if diags.HasErrors() {
-		return nil, diags
-	}
-	return &testSuiteRunContext{
-		Core: tfCtx,
+			// We just use the provisioners from the main Meta here, because
+			// unlike providers provisioner plugins are not automatically
+			// installable anyway, and so we'll need to hunt for them in the same
+			// legacy way that normal Terraform operations do.
+			Provisioners: c.provisionerFactories(),
 
-		PlanMode:   planMode,
-		Config:     suiteDirs.Config,
-		InputState: state,
-		Changes:    changes,
-	}, diags
+			Meta: &terraform.ContextMeta{
+				Env: "test_" + suiteDirs.SuiteName,
+			},
+		})
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		return &testSuiteRunContext{
+			Core: tfCtx,
+
+			PlanMode:   planMode,
+			Config:     suiteDirs.Config,
+			InputState: state,
+			Changes:    changes,
+		}, diags
+	*/
 }
 
 func (c *TestCommand) testSuitePlan(ctx context.Context, suiteDirs testCommandSuiteDirs, providerFactories map[addrs.Provider]providers.Factory) (*plans.Plan, tfdiags.Diagnostics) {
